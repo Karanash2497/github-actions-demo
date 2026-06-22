@@ -1,0 +1,63 @@
+name: Build & Push to ECR
+
+on:
+  push:
+    branches: [ "main" ]         # Triggers only on merge to main
+  workflow_dispatch:              # Allows manual trigger from GitHub UI
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: github-actions-demo   # Change this to your ECR repo name
+
+jobs:
+  build-and-push:
+    name: Build & Push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ─── Authenticate with AWS ───────────────────────────────────────────────
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      # ─── Login to Amazon ECR ─────────────────────────────────────────────────
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ─── Build, Tag & Push ───────────────────────────────────────────────────
+      - name: Build, tag, and push image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Build the image
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+
+          # Push both the commit-SHA tag and :latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+          echo "✅ Image pushed:"
+          echo "   $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          echo "   $ECR_REGISTRY/$ECR_REPOSITORY:latest"
+
+      # ─── Summary ─────────────────────────────────────────────────────────────
+      - name: Write job summary
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          echo "## ✅ ECR Push Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Key | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Registry | $ECR_REGISTRY |" >> $GITHUB_STEP_SUMMARY
+          echo "| Repository | $ECR_REPOSITORY |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Tag | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
